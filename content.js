@@ -220,9 +220,15 @@ function detectTableType(indexMap) {
 }
 
 function detectStatusFromContext(table) {
-  const nearbyContainer = table.closest("section,article,fieldset,div") || table.parentElement;
-  const contextText = normalize(nearbyContainer?.textContent || "");
-  if (contextText.includes(SECOND_TABLE_SECTION_LABEL) || contextText.includes("encerrad")) return "Fechado";
+  const candidates = [
+    table.previousElementSibling,
+    table.parentElement?.previousElementSibling,
+    table.closest("section,article,fieldset,div")?.previousElementSibling
+  ];
+  for (const node of candidates) {
+    const text = normalize(node?.textContent || "");
+    if (text.includes(SECOND_TABLE_SECTION_LABEL) || text.includes("encerrad")) return "Fechado";
+  }
   return "Aberto";
 }
 
