@@ -3,6 +3,7 @@ const OBS_CACHE = new Map();
 const DEBUG = false;
 let observer = null;
 let latestRows = [];
+const SECOND_TABLE_SECTION_LABEL = "registros com participacao encerrada";
 
 function log(...args) {
   if (DEBUG) console.log("[PokerExtractor]", ...args);
@@ -202,36 +203,130 @@ function splitName(registro) {
   return text.split(" - ")[0].trim();
 }
 
-function getRows() {
-  const table = document.querySelector(TABLE_SELECTOR);
-  if (!table) return [];
-  const rows = Array.from(table.querySelectorAll("tbody tr"));
+function normalizeHeader(value) {
+  return normalize(value).replace(/[^a-z0-9]/g, "");
+}
+
+function getHeaderInfo(table) {
+  if (!table) return null;
+  const headerRow = table.querySelector("thead tr") || table.querySelector("tr");
+  if (!headerRow) return null;
+  const headerCells = Array.from(headerRow.querySelectorAll("th,td"));
+  if (!headerCells.length) return null;
+
+  const indexMap = {};
+  headerCells.forEach((cell, index) => {
+    const key = normalizeHeader(cell.textContent);
+    if (!key || indexMap[key] !== undefined) return;
+    indexMap[key] = index;
+  });
+
+  return { headerRow, headerCells, indexMap };
+}
+
+function findIndex(indexMap, aliases) {
+  for (const alias of aliases) {
+    const key = normalizeHeader(alias);
+    if (indexMap[key] !== undefined) return indexMap[key];
+  }
+  return -1;
+}
+
+function isSupportedTable(indexMap) {
+  const timeIndex = findIndex(indexMap, ["HrE", "TtHoras"]);
+  const gameIDIndex = findIndex(indexMap, ["GameID"]);
+  const nameIndex = findIndex(indexMap, ["Registro", "Nome"]);
+  const cIndex = findIndex(indexMap, ["C"]);
+  const dIndex = findIndex(indexMap, ["D"]);
+  const sIndex = findIndex(indexMap, ["S"]);
+  const saldoFinalIndex = findIndex(indexMap, ["Saldo/Final"]);
+  return [timeIndex, gameIDIndex, nameIndex, cIndex, dIndex, sIndex, saldoFinalIndex].every((idx) => idx >= 0);
+}
+
+function getCandidateTables() {
+  const tables = new Set();
+  const primaryTable = document.querySelector(TABLE_SELECTOR);
+  if (primaryTable) tables.add(primaryTable);
+
+  const labels = Array.from(document.querySelectorAll("h1,h2,h3,h4,h5,h6,strong,b,legend,label,span,div"));
+  for (const label of labels) {
+    if (!normalize(label.textContent).includes(SECOND_TABLE_SECTION_LABEL)) continue;
+    const container = label.closest("section,article,fieldset,div") || label.parentElement;
+    const inContainer = container?.querySelector("table");
+    if (inContainer) tables.add(inContainer);
+
+    let sibling = label.nextElementSibling;
+    while (sibling) {
+      if (sibling.tagName === "TABLE") {
+        tables.add(sibling);
+        break;
+      }
+      const nested = sibling.querySelector?.("table");
+      if (nested) {
+        tables.add(nested);
+        break;
+      }
+      sibling = sibling.nextElementSibling;
+    }
+  }
+
+  for (const table of document.querySelectorAll("table")) {
+    const headerInfo = getHeaderInfo(table);
+    if (headerInfo && isSupportedTable(headerInfo.indexMap)) tables.add(table);
+  }
+
+  return Array.from(tables);
+}
+
+function parseTableRows(table) {
+  const headerInfo = getHeaderInfo(table);
+  if (!headerInfo || !isSupportedTable(headerInfo.indexMap)) return [];
+
+  const { headerRow, headerCells, indexMap } = headerInfo;
+  const timeIndex = findIndex(indexMap, ["HrE", "TtHoras"]);
+  const registroIndex = findIndex(indexMap, ["Registro"]);
+  const nomeIndex = findIndex(indexMap, ["Nome"]);
+  const mesaIndex = findIndex(indexMap, ["Mesa"]);
+  const gameIDIndex = findIndex(indexMap, ["GameID"]);
+  const cIndex = findIndex(indexMap, ["C"]);
+  const dIndex = findIndex(indexMap, ["D"]);
+  const sIndex = findIndex(indexMap, ["S"]);
+  const saldoCashGameIndex = findIndex(indexMap, ["Saldo/CashGame"]);
+  const saldosOutrosIndex = findIndex(indexMap, ["Saldo/Outros", "Saldos/Outros"]);
+  const saldoFinalIndex = findIndex(indexMap, ["Saldo/Final"]);
+  const obsIndex = findIndex(indexMap, ["Obs", "Observacao", "Observação"]);
+
+  let rows = Array.from(table.querySelectorAll("tbody tr"));
+  if (!rows.length) {
+    rows = Array.from(table.querySelectorAll("tr")).filter((row) => row !== headerRow);
+  }
 
   return rows
     .map((row) => {
       const cells = Array.from(row.querySelectorAll("td"));
       if (!cells.length) return null;
 
-      const hrE = cleanText(cells[0]?.textContent);
-      const registro = cleanText(cells[1]?.textContent);
-      const mesa = cleanText(cells[2]?.textContent);
-      const gameID = cleanText(cells[3]?.textContent);
-      const c = cleanText(cells[4]?.textContent);
-      const d = cleanText(cells[5]?.textContent);
-      const s = cleanText(cells[6]?.textContent);
-      const saldoCashGame = formatMoney(cells[10]?.textContent);
-      const saldosOutros = formatMoney(cells[11]?.textContent);
-      const saldoFinal = formatMoney(cells[12]?.textContent);
-      const obsCell = cells[13];
+      const hrE = cleanText(cells[timeIndex]?.textContent);
+      const registro = registroIndex >= 0 ? cleanText(cells[registroIndex]?.textContent) : "";
+      const nome = nomeIndex >= 0 ? cleanText(cells[nomeIndex]?.textContent) : "";
+      const mesa = mesaIndex >= 0 ? cleanText(cells[mesaIndex]?.textContent) : "";
+      const gameID = cleanText(cells[gameIDIndex]?.textContent);
+      const c = cleanText(cells[cIndex]?.textContent);
+      const d = cleanText(cells[dIndex]?.textContent);
+      const s = cleanText(cells[sIndex]?.textContent);
+      const saldoCashGame = formatMoney(cells[saldoCashGameIndex]?.textContent);
+      const saldosOutros = formatMoney(cells[saldosOutrosIndex]?.textContent);
+      const saldoFinal = formatMoney(cells[saldoFinalIndex]?.textContent);
+      const obsCell = obsIndex >= 0 ? cells[obsIndex] : cells[headerCells.length - 1] || cells[cells.length - 1];
 
       const directObs = extractObsFromDomCell(obsCell);
       const trKeys = getCandidateKeysFromElement(row);
       const obsKeys = getCandidateKeysFromElement(obsCell);
-      const name = splitName(registro);
+      const finalName = nome || splitName(registro);
       const lookupKeys = buildObsLookupKeys({
         elementKeys: [...trKeys, ...obsKeys],
         registro,
-        name,
+        name: finalName,
         gameID
       });
 
@@ -239,11 +334,13 @@ function getRows() {
       const cachedObs = readObsFromCache(lookupKeys);
       const obs = cleanText(directObs || cachedObs);
 
+      if (!hrE && !gameID && !finalName && !c && !d && !s && !saldoFinal && !obs) return null;
+
       return {
         HrE: hrE,
         Mesa: mesa,
         GameID: gameID,
-        Nome: name || registro,
+        Nome: finalName || registro,
         C: c,
         D: d,
         S: s,
@@ -254,6 +351,10 @@ function getRows() {
       };
     })
     .filter(Boolean);
+}
+
+function getRows() {
+  return getCandidateTables().flatMap((table) => parseTableRows(table));
 }
 
 function injectPageHook() {
