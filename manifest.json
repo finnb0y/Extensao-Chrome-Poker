@@ -4,14 +4,14 @@
   "version": "1.0.0",
   "description": "Extrai registros e Obs da tabela de cash game em site de poker autorizado.",
   "permissions": ["storage", "tabs"],
-  "host_permissions": ["https://poker.example.com/*"],
+  "host_permissions": ["https://quadrapokerclub.bt.pokerweb.com.br/*"],
   "action": {
     "default_title": "Poker Registro Extractor",
     "default_popup": "popup.html"
   },
   "content_scripts": [
     {
-      "matches": ["https://poker.example.com/*"],
+      "matches": ["https://quadrapokerclub.bt.pokerweb.com.br/*"],
       "js": ["content.js"],
       "run_at": "document_idle"
     }
@@ -19,7 +19,7 @@
   "web_accessible_resources": [
     {
       "resources": ["page-hook.js"],
-      "matches": ["https://poker.example.com/*"]
+      "matches": ["https://quadrapokerclub.bt.pokerweb.com.br/*"]
     }
   ]
 }
