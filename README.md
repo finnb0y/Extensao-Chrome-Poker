@@ -1,6 +1,6 @@
 # Extensao-Chrome-Poker
 
-Extensão Chrome (Manifest V3) para extrair registros da tabela `#table_cash_registros`, incluindo o campo **Obs** (olhinho), somente para o site de poker configurado.
+Extensão Chrome (Manifest V3) para extrair registros das tabelas de participação ativa e **Registros com Participação Encerrada**, incluindo o campo **Obs** (olhinho), somente para o site de poker configurado.
 
 ## Configuração do domínio (obrigatório)
 
@@ -34,7 +34,7 @@ Substitua `https://poker.example.com/*` pelo domínio real do seu site.
 
 ## O que a extensão coleta
 
-Por linha da tabela:
+Por linha das tabelas suportadas:
 
 - HrE
 - Mesa
