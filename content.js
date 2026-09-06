@@ -114,6 +114,30 @@ function getCandidateKeysFromElement(element) {
   return [...new Set(keys)];
 }
 
+function buildObsLookupKeys({ elementKeys = [], registro = "", name = "", gameID = "" }) {
+  const base = [...new Set(elementKeys.map(cleanText).filter(Boolean))];
+  const keys = [];
+  const normalizedGameID = cleanText(gameID);
+  const normalizedRegistro = cleanText(registro);
+  const normalizedName = cleanText(name);
+
+  if (normalizedGameID) keys.push(`gameid:${normalizedGameID}`);
+  if (normalizedName && normalizedGameID) keys.push(`nome_gameid:${normalizedName}|${normalizedGameID}`);
+  if (normalizedRegistro && normalizedGameID) keys.push(`registro_gameid:${normalizedRegistro}|${normalizedGameID}`);
+
+  for (const item of base) {
+    if (normalizedGameID) keys.push(`item_gameid:${item}|${normalizedGameID}`);
+  }
+
+  for (let i = 0; i < base.length; i += 1) {
+    for (let j = i + 1; j < base.length; j += 1) {
+      keys.push(`pair:${base[i]}|${base[j]}`);
+    }
+  }
+
+  return [...new Set(keys)];
+}
+
 function extractObsFromDomCell(cell) {
   if (!cell) return "";
   const attrCandidates = [
@@ -204,15 +228,12 @@ function getRows() {
       const trKeys = getCandidateKeysFromElement(row);
       const obsKeys = getCandidateKeysFromElement(obsCell);
       const name = splitName(registro);
-
-      const lookupKeys = [
-        ...trKeys,
-        ...obsKeys,
+      const lookupKeys = buildObsLookupKeys({
+        elementKeys: [...trKeys, ...obsKeys],
         registro,
         name,
-        gameID,
-        `${name}:${gameID}`
-      ].filter(Boolean);
+        gameID
+      });
 
       if (directObs) rememberObs(lookupKeys, directObs);
       const cachedObs = readObsFromCache(lookupKeys);
@@ -251,7 +272,8 @@ function handlePageMessages(event) {
   for (const entry of entries) {
     if (!entry?.obs) continue;
     const keys = Array.isArray(entry.keys) ? entry.keys : [];
-    rememberObs([...keys, entry.obs], entry.obs);
+    const lookupKeys = buildObsLookupKeys({ elementKeys: keys });
+    rememberObs(lookupKeys, entry.obs);
   }
   latestRows = getRows();
   log("Obs cache updated from network:", entries.length);
