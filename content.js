@@ -48,17 +48,7 @@ function parseObsPayload(value) {
   try {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return "";
-    const keyPriority = [
-      "obs",
-      "observacao",
-      "observação",
-      "telefone",
-      "phone",
-      "celular",
-      "contato",
-      "acao",
-      "ação"
-    ];
+    const keyPriority = ["obs", "observacao", "observação", "telefone", "phone", "celular", "contato", "acao", "ação"];
     const normalizedMap = Object.fromEntries(Object.entries(parsed).map(([k, v]) => [normalize(k), cleanText(v)]));
 
     for (const key of keyPriority) {
@@ -77,16 +67,7 @@ function getCandidateKeysFromElement(element) {
   if (!element) return [];
   const keys = [];
   const attrs = element.getAttributeNames ? element.getAttributeNames() : [];
-  const allowedAttrs = new Set([
-    "id",
-    "data-id",
-    "data-jogadorid",
-    "data-playerid",
-    "data-registroid",
-    "data-gameid",
-    "data-nome",
-    "data-name"
-  ]);
+  const allowedAttrs = new Set(["id", "data-id", "data-jogadorid", "data-playerid", "data-registroid", "data-gameid", "data-nome", "data-name"]);
   for (const attr of attrs) {
     if (!allowedAttrs.has(attr)) continue;
     const v = cleanText(element.getAttribute(attr));
@@ -95,17 +76,7 @@ function getCandidateKeysFromElement(element) {
   if (element.dataset) {
     for (const [datasetKey, datasetValue] of Object.entries(element.dataset)) {
       const normalizedKey = normalize(datasetKey);
-      if (
-        ![
-          "id",
-          "jogadorid",
-          "playerid",
-          "registroid",
-          "gameid",
-          "nome",
-          "name"
-        ].some((key) => normalizedKey.includes(key))
-      ) {
+      if (!["id", "jogadorid", "playerid", "registroid", "gameid", "nome", "name"].some((key) => normalizedKey.includes(key))) {
         continue;
       }
       const text = cleanText(datasetValue);
@@ -141,29 +112,17 @@ function buildObsLookupKeys({ elementKeys = [], registro = "", name = "", gameID
 
 function extractObsFromDomCell(cell) {
   if (!cell) return "";
-  const attrCandidates = [
-    "data-json",
-    "title",
-    "data-bs-original-title",
-    "data-original-title",
-    "data-content",
-    "aria-label",
-    "data-obs"
-  ];
+  const attrCandidates = ["data-json", "title", "data-bs-original-title", "data-original-title", "data-content", "aria-label", "data-obs"];
 
   for (const attr of attrCandidates) {
-    const value =
-      attr === "data-json" ? parseObsPayload(cell.getAttribute(attr)) : cleanText(cell.getAttribute(attr));
+    const value = attr === "data-json" ? parseObsPayload(cell.getAttribute(attr)) : cleanText(cell.getAttribute(attr));
     if (isMeaningfulObs(value)) return value;
   }
 
-  const inner = cell.querySelector(
-    "[data-json],[title],[data-bs-original-title],[data-original-title],[data-content],[aria-label],[data-obs]"
-  );
+  const inner = cell.querySelector("[data-json],[title],[data-bs-original-title],[data-original-title],[data-content],[aria-label],[data-obs]");
   if (inner) {
     for (const attr of attrCandidates) {
-      const value =
-        attr === "data-json" ? parseObsPayload(inner.getAttribute(attr)) : cleanText(inner.getAttribute(attr));
+      const value = attr === "data-json" ? parseObsPayload(inner.getAttribute(attr)) : cleanText(inner.getAttribute(attr));
       if (isMeaningfulObs(value)) return value;
     }
   }
@@ -232,38 +191,69 @@ function findIndex(indexMap, aliases) {
   return -1;
 }
 
-function isSupportedTable(indexMap) {
-  const timeIndex = findIndex(indexMap, ["HrE", "TtHoras"]);
+function isCashTable(indexMap) {
   const gameIDIndex = findIndex(indexMap, ["GameID"]);
   const nameIndex = findIndex(indexMap, ["Registro", "Nome"]);
   const cIndex = findIndex(indexMap, ["C"]);
   const dIndex = findIndex(indexMap, ["D"]);
   const sIndex = findIndex(indexMap, ["S"]);
   const saldoFinalIndex = findIndex(indexMap, ["Saldo/Final"]);
-  return [timeIndex, gameIDIndex, nameIndex, cIndex, dIndex, sIndex, saldoFinalIndex].every((idx) => idx >= 0);
+  return [gameIDIndex, nameIndex, cIndex, dIndex, sIndex, saldoFinalIndex].every((idx) => idx >= 0);
+}
+
+function isTournamentTable(indexMap) {
+  const nameIndex = findIndex(indexMap, ["Nome", "Registro"]);
+  const saldoFinalIndex = findIndex(indexMap, ["Saldo/Final"]);
+  const indicators = ["BI", "ST", "RC", "TC", "JP", "Compras", "Saldo/Torneio"];
+  const hasIndicator = indicators.some((header) => findIndex(indexMap, [header]) >= 0);
+  return nameIndex >= 0 && saldoFinalIndex >= 0 && hasIndicator;
+}
+
+function isSupportedTable(indexMap) {
+  return isCashTable(indexMap) || isTournamentTable(indexMap);
+}
+
+function detectTableType(indexMap) {
+  if (isTournamentTable(indexMap)) return "Torneio";
+  if (isCashTable(indexMap)) return "Cash";
+  return "Desconhecido";
+}
+
+function detectStatusFromContext(table) {
+  const nearbyContainer = table.closest("section,article,fieldset,div") || table.parentElement;
+  const contextText = normalize(nearbyContainer?.textContent || "");
+  if (contextText.includes(SECOND_TABLE_SECTION_LABEL) || contextText.includes("encerrad")) return "Fechado";
+  return "Aberto";
 }
 
 function getCandidateTables() {
-  const tables = new Set();
+  const tableMap = new Map();
+
+  function setTable(table, status) {
+    if (!table) return;
+    const previous = tableMap.get(table);
+    if (!previous || status === "Fechado") tableMap.set(table, status);
+  }
+
   const primaryTable = document.querySelector(TABLE_SELECTOR);
-  if (primaryTable) tables.add(primaryTable);
+  if (primaryTable) setTable(primaryTable, "Aberto");
 
   const labels = Array.from(document.querySelectorAll("h1,h2,h3,h4,h5,h6,strong,b,legend,label,span,div"));
   for (const label of labels) {
     if (!normalize(label.textContent).includes(SECOND_TABLE_SECTION_LABEL)) continue;
     const container = label.closest("section,article,fieldset,div") || label.parentElement;
     const inContainer = container?.querySelector("table");
-    if (inContainer) tables.add(inContainer);
+    if (inContainer) setTable(inContainer, "Fechado");
 
     let sibling = label.nextElementSibling;
     while (sibling) {
       if (sibling.tagName === "TABLE") {
-        tables.add(sibling);
+        setTable(sibling, "Fechado");
         break;
       }
       const nested = sibling.querySelector?.("table");
       if (nested) {
-        tables.add(nested);
+        setTable(nested, "Fechado");
         break;
       }
       sibling = sibling.nextElementSibling;
@@ -272,57 +262,46 @@ function getCandidateTables() {
 
   for (const table of document.querySelectorAll("table")) {
     const headerInfo = getHeaderInfo(table);
-    if (headerInfo && isSupportedTable(headerInfo.indexMap)) tables.add(table);
+    if (headerInfo && isSupportedTable(headerInfo.indexMap)) {
+      setTable(table, detectStatusFromContext(table));
+    }
   }
 
-  return Array.from(tables);
+  return Array.from(tableMap.entries()).map(([table, status]) => ({ table, status }));
 }
 
-function parseTableRows(table) {
+function shouldFormatAsMoney(headerName) {
+  const key = normalizeHeader(headerName);
+  return key.includes("saldo") || key.includes("compra") || key.includes("compras");
+}
+
+function parseTableRows(table, status) {
   const headerInfo = getHeaderInfo(table);
   if (!headerInfo || !isSupportedTable(headerInfo.indexMap)) return [];
 
   const { headerRow, headerCells, indexMap } = headerInfo;
-  const timeIndex = findIndex(indexMap, ["HrE", "TtHoras"]);
+  const tableType = detectTableType(indexMap);
   const registroIndex = findIndex(indexMap, ["Registro"]);
   const nomeIndex = findIndex(indexMap, ["Nome"]);
-  const mesaIndex = findIndex(indexMap, ["Mesa"]);
   const gameIDIndex = findIndex(indexMap, ["GameID"]);
-  const cIndex = findIndex(indexMap, ["C"]);
-  const dIndex = findIndex(indexMap, ["D"]);
-  const sIndex = findIndex(indexMap, ["S"]);
-  const saldoCashGameIndex = findIndex(indexMap, ["Saldo/CashGame"]);
-  const saldosOutrosIndex = findIndex(indexMap, ["Saldo/Outros", "Saldos/Outros"]);
-  const saldoFinalIndex = findIndex(indexMap, ["Saldo/Final"]);
   const obsIndex = findIndex(indexMap, ["Obs", "Observacao", "Observação"]);
 
   let rows = Array.from(table.querySelectorAll("tbody tr"));
-  if (!rows.length) {
-    rows = Array.from(table.querySelectorAll("tr")).filter((row) => row !== headerRow);
-  }
+  if (!rows.length) rows = Array.from(table.querySelectorAll("tr")).filter((row) => row !== headerRow);
 
   return rows
     .map((row) => {
       const cells = Array.from(row.querySelectorAll("td"));
       if (!cells.length) return null;
 
-      const hrE = cleanText(cells[timeIndex]?.textContent);
       const registro = registroIndex >= 0 ? cleanText(cells[registroIndex]?.textContent) : "";
       const nome = nomeIndex >= 0 ? cleanText(cells[nomeIndex]?.textContent) : "";
-      const mesa = mesaIndex >= 0 ? cleanText(cells[mesaIndex]?.textContent) : "";
-      const gameID = cleanText(cells[gameIDIndex]?.textContent);
-      const c = cleanText(cells[cIndex]?.textContent);
-      const d = cleanText(cells[dIndex]?.textContent);
-      const s = cleanText(cells[sIndex]?.textContent);
-      const saldoCashGame = formatMoney(cells[saldoCashGameIndex]?.textContent);
-      const saldosOutros = formatMoney(cells[saldosOutrosIndex]?.textContent);
-      const saldoFinal = formatMoney(cells[saldoFinalIndex]?.textContent);
+      const gameID = gameIDIndex >= 0 ? cleanText(cells[gameIDIndex]?.textContent) : "";
+      const finalName = nome || splitName(registro);
       const obsCell = obsIndex >= 0 ? cells[obsIndex] : cells[headerCells.length - 1] || cells[cells.length - 1];
 
-      const directObs = extractObsFromDomCell(obsCell);
       const trKeys = getCandidateKeysFromElement(row);
       const obsKeys = getCandidateKeysFromElement(obsCell);
-      const finalName = nome || splitName(registro);
       const lookupKeys = buildObsLookupKeys({
         elementKeys: [...trKeys, ...obsKeys],
         registro,
@@ -330,31 +309,38 @@ function parseTableRows(table) {
         gameID
       });
 
+      const directObs = extractObsFromDomCell(obsCell);
       if (directObs) rememberObs(lookupKeys, directObs);
       const cachedObs = readObsFromCache(lookupKeys);
       const obs = cleanText(directObs || cachedObs);
 
-      if (!hrE && !gameID && !finalName && !c && !d && !s && !saldoFinal && !obs) return null;
+      const parsedRow = {};
+      headerCells.forEach((headerCell, index) => {
+        const headerName = cleanText(headerCell.textContent) || `Coluna ${index + 1}`;
+        const rawValue = cleanText(cells[index]?.textContent);
+        parsedRow[headerName] = shouldFormatAsMoney(headerName) ? formatMoney(rawValue) : rawValue;
+      });
 
-      return {
-        HrE: hrE,
-        Mesa: mesa,
-        GameID: gameID,
-        Nome: finalName || registro,
-        C: c,
-        D: d,
-        S: s,
-        "Saldo/CashGame": saldoCashGame,
-        "Saldos/Outros": saldosOutros,
-        "Saldo/Final": saldoFinal,
-        Obs: obs
-      };
+      if (registro && !parsedRow.Nome && !parsedRow.Registro) parsedRow.Nome = splitName(registro) || registro;
+      if (obs) parsedRow.Obs = obs;
+
+      parsedRow.StatusRegistro = status;
+      parsedRow.TipoRegistro = tableType;
+
+      const hasData = Object.entries(parsedRow).some(
+        ([key, value]) => key !== "StatusRegistro" && key !== "TipoRegistro" && cleanText(value)
+      );
+      return hasData ? parsedRow : null;
     })
     .filter(Boolean);
 }
 
 function getRows() {
-  return getCandidateTables().flatMap((table) => parseTableRows(table));
+  return getCandidateTables().flatMap(({ table, status }) => parseTableRows(table, status));
+}
+
+function collectNow() {
+  latestRows = getRows();
 }
 
 function injectPageHook() {
@@ -376,44 +362,30 @@ function handlePageMessages(event) {
     const lookupKeys = buildObsLookupKeys({ elementKeys: keys });
     rememberObs(lookupKeys, entry.obs);
   }
-  latestRows = getRows();
+  collectNow();
   log("Obs cache updated from network:", entries.length);
-}
-
-async function isEnabledForCurrentOrigin() {
-  const { enabledOrigins = [] } = await chrome.storage.local.get("enabledOrigins");
-  return enabledOrigins.includes(window.location.origin);
-}
-
-async function collectIfEnabled() {
-  if (!(await isEnabledForCurrentOrigin())) return;
-  latestRows = getRows();
 }
 
 function setupObserver() {
   if (observer) observer.disconnect();
   observer = new MutationObserver(() => {
-    collectIfEnabled();
+    collectNow();
   });
   observer.observe(document.body, { childList: true, subtree: true });
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type !== "COLLECT_NOW") return false;
-  isEnabledForCurrentOrigin()
-    .then((enabled) => {
-      if (!enabled) {
-        sendResponse({ ok: false, error: "Ative a coleta para este site no popup." });
-        return;
-      }
-      latestRows = getRows();
-      sendResponse({ ok: true, rows: latestRows });
-    })
-    .catch((error) => sendResponse({ ok: false, error: error.message }));
+  try {
+    collectNow();
+    sendResponse({ ok: true, rows: latestRows });
+  } catch (error) {
+    sendResponse({ ok: false, error: error.message });
+  }
   return true;
 });
 
 window.addEventListener("message", handlePageMessages);
 injectPageHook();
-collectIfEnabled();
+collectNow();
 setupObserver();

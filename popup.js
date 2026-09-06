@@ -1,77 +1,68 @@
-const toggleBtn = document.getElementById("toggle");
-const refreshBtn = document.getElementById("refresh");
-const copyCsvBtn = document.getElementById("copyCsv");
-const copyJsonBtn = document.getElementById("copyJson");
+const collectBtn = document.getElementById("collect");
+const filterOpenEl = document.getElementById("filterOpen");
+const filterClosedEl = document.getElementById("filterClosed");
 const statusEl = document.getElementById("status");
 const resultEl = document.getElementById("result");
 
 let latestData = [];
-let currentOrigin = "";
 
 function setStatus(message) {
   statusEl.textContent = message;
 }
 
-function toCsv(rows) {
-  if (!rows.length) return "";
-  const headers = Object.keys(rows[0]);
-  const escape = (value) => `"${String(value ?? "").replaceAll('"', '""')}"`;
-  const lines = [headers.map(escape).join(",")];
-  for (const row of rows) {
-    lines.push(headers.map((h) => escape(row[h])).join(","));
-  }
-  return lines.join("\n");
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }
 
-function renderTable(rows) {
-  if (!rows.length) {
-    resultEl.innerHTML = "<em>Nenhum dado encontrado.</em>";
-    copyCsvBtn.disabled = true;
-    copyJsonBtn.disabled = true;
+function normalizeStatus(value) {
+  return String(value || "").toLowerCase();
+}
+
+function getHeaders(rows) {
+  const seen = new Set();
+  for (const row of rows) {
+    for (const key of Object.keys(row)) seen.add(key);
+  }
+  return Array.from(seen);
+}
+
+function renderTable(rows, title) {
+  if (!rows.length) return `<section><div class="table-title">${title}</div><em>Nenhum dado encontrado.</em></section>`;
+
+  const headers = getHeaders(rows);
+  const head = `<tr>${headers.map((h) => `<th>${escapeHtml(h)}</th>`).join("")}</tr>`;
+  const body = rows
+    .map((row) => `<tr>${headers.map((h) => `<td>${escapeHtml(row[h])}</td>`).join("")}</tr>`)
+    .join("");
+
+  return `<section><div class="table-title">${title} (${rows.length})</div><table><thead>${head}</thead><tbody>${body}</tbody></table></section>`;
+}
+
+function renderData() {
+  const showOpen = filterOpenEl.checked;
+  const showClosed = filterClosedEl.checked;
+
+  if (!showOpen && !showClosed) {
+    resultEl.innerHTML = "<em>Selecione ao menos um filtro.</em>";
     return;
   }
 
-  const headers = Object.keys(rows[0]);
-  const head = `<tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr>`;
-  const body = rows
-    .map(
-      (row) =>
-        `<tr>${headers
-          .map((h) => `<td>${String(row[h] ?? "").replaceAll("<", "&lt;")}</td>`)
-          .join("")}</tr>`
-    )
-    .join("");
-  resultEl.innerHTML = `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
-  copyCsvBtn.disabled = false;
-  copyJsonBtn.disabled = false;
+  const openRows = latestData.filter((row) => normalizeStatus(row.StatusRegistro) !== "fechado");
+  const closedRows = latestData.filter((row) => normalizeStatus(row.StatusRegistro) === "fechado");
+
+  const sections = [];
+  if (showOpen) sections.push(renderTable(openRows, "Registros Abertos"));
+  if (showClosed) sections.push(renderTable(closedRows, "Registros Fechados"));
+
+  resultEl.innerHTML = sections.join(showOpen && showClosed ? '<div class="table-divider"></div>' : "");
 }
 
 async function getActiveTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   return tab;
-}
-
-async function getEnabledOrigins() {
-  const { enabledOrigins = [] } = await chrome.storage.local.get("enabledOrigins");
-  return enabledOrigins;
-}
-
-async function updateToggleLabel() {
-  const origins = await getEnabledOrigins();
-  const enabled = origins.includes(currentOrigin);
-  toggleBtn.textContent = enabled ? "Desativar neste site" : "Ativar neste site";
-}
-
-async function toggleSite() {
-  if (!currentOrigin) return;
-  const origins = await getEnabledOrigins();
-  const enabled = origins.includes(currentOrigin);
-  const next = enabled
-    ? origins.filter((origin) => origin !== currentOrigin)
-    : [...new Set([...origins, currentOrigin])];
-  await chrome.storage.local.set({ enabledOrigins: next });
-  await updateToggleLabel();
-  setStatus(enabled ? "Coleta desativada para este site." : "Coleta ativada para este site.");
 }
 
 async function collectNow() {
@@ -88,37 +79,19 @@ async function collectNow() {
       setStatus(response?.error || "Falha ao coletar.");
       return;
     }
+
     latestData = response.rows || [];
-    renderTable(latestData);
+    renderData();
     setStatus(`Coletado: ${latestData.length} linha(s).`);
-  } catch (error) {
-    setStatus("Abra uma página válida do site configurado no manifest.");
+  } catch (_error) {
+    setStatus("Abra uma página compatível para coletar dados.");
+    latestData = [];
+    renderData();
   }
 }
 
-async function copyCsv() {
-  await navigator.clipboard.writeText(toCsv(latestData));
-  setStatus("CSV copiado.");
-}
+collectBtn.addEventListener("click", collectNow);
+filterOpenEl.addEventListener("change", renderData);
+filterClosedEl.addEventListener("change", renderData);
 
-async function copyJson() {
-  await navigator.clipboard.writeText(JSON.stringify(latestData, null, 2));
-  setStatus("JSON copiado.");
-}
-
-async function init() {
-  const tab = await getActiveTab();
-  if (!tab?.url) {
-    setStatus("Sem URL ativa.");
-    return;
-  }
-  currentOrigin = new URL(tab.url).origin;
-  await updateToggleLabel();
-}
-
-toggleBtn.addEventListener("click", toggleSite);
-refreshBtn.addEventListener("click", collectNow);
-copyCsvBtn.addEventListener("click", copyCsv);
-copyJsonBtn.addEventListener("click", copyJson);
-
-init();
+collectNow();
