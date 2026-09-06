@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Poker Registro Extractor</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        width: 360px;
+        margin: 0;
+        padding: 12px;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+      button {
+        border: 1px solid #ccc;
+        background: #fff;
+        border-radius: 6px;
+        padding: 8px 10px;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      #status {
+        font-size: 12px;
+        color: #444;
+        margin: 8px 0;
+        min-height: 16px;
+      }
+      #result {
+        max-height: 280px;
+        overflow: auto;
+        border: 1px solid #eee;
+        border-radius: 6px;
+        padding: 8px;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        font-size: 11px;
+      }
+      th,
+      td {
+        border: 1px solid #ddd;
+        padding: 4px;
+        text-align: left;
+        vertical-align: top;
+      }
+      th {
+        background: #f6f6f6;
+        position: sticky;
+        top: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="row">
+      <button id="toggle">Ativar neste site</button>
+      <button id="refresh">Coletar agora</button>
+    </div>
+    <div class="row">
+      <button id="copyCsv" disabled>Copiar CSV</button>
+      <button id="copyJson" disabled>Copiar JSON</button>
+    </div>
+    <div id="status"></div>
+    <div id="result"></div>
+    <script src="popup.js"></script>
+  </body>
+</html>
