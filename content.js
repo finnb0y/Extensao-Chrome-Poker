@@ -34,6 +34,44 @@ function hasPhoneLike(value) {
   return /\d{2}\s?\d{4,5}-?\d{4}/.test(String(value || ""));
 }
 
+function isMeaningfulObs(value) {
+  const text = cleanText(value);
+  if (!text) return false;
+  const normalized = normalize(text);
+  return !["...", "-", "obs", "observacao", "observações", "observacoes"].includes(normalized);
+}
+
+function parseObsPayload(value) {
+  const raw = cleanText(value);
+  if (!raw) return "";
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return "";
+    const keyPriority = [
+      "obs",
+      "observacao",
+      "observação",
+      "telefone",
+      "phone",
+      "celular",
+      "contato",
+      "acao",
+      "ação"
+    ];
+    const normalizedMap = Object.fromEntries(Object.entries(parsed).map(([k, v]) => [normalize(k), cleanText(v)]));
+
+    for (const key of keyPriority) {
+      const candidate = normalizedMap[normalize(key)];
+      if (isMeaningfulObs(candidate)) return candidate;
+    }
+
+    for (const candidate of Object.values(normalizedMap)) {
+      if (hasPhoneLike(candidate)) return candidate;
+    }
+  } catch (_) {}
+  return "";
+}
+
 function getCandidateKeysFromElement(element) {
   if (!element) return [];
   const keys = [];
@@ -54,6 +92,7 @@ function getCandidateKeysFromElement(element) {
 function extractObsFromDomCell(cell) {
   if (!cell) return "";
   const attrCandidates = [
+    "data-json",
     "title",
     "data-bs-original-title",
     "data-original-title",
@@ -63,30 +102,32 @@ function extractObsFromDomCell(cell) {
   ];
 
   for (const attr of attrCandidates) {
-    const value = cleanText(cell.getAttribute(attr));
-    if (value && value !== "..." && value !== "-") return value;
+    const value =
+      attr === "data-json" ? parseObsPayload(cell.getAttribute(attr)) : cleanText(cell.getAttribute(attr));
+    if (isMeaningfulObs(value)) return value;
   }
 
   const inner = cell.querySelector(
-    "[title],[data-bs-original-title],[data-original-title],[data-content],[aria-label],[data-obs]"
+    "[data-json],[title],[data-bs-original-title],[data-original-title],[data-content],[aria-label],[data-obs]"
   );
   if (inner) {
     for (const attr of attrCandidates) {
-      const value = cleanText(inner.getAttribute(attr));
-      if (value && value !== "..." && value !== "-") return value;
+      const value =
+        attr === "data-json" ? parseObsPayload(inner.getAttribute(attr)) : cleanText(inner.getAttribute(attr));
+      if (isMeaningfulObs(value)) return value;
     }
   }
 
-  const hiddenNode = cell.querySelector(
-    "[hidden], .sr-only, .visually-hidden, [style*='display:none'], [style*='visibility:hidden']"
+  const hiddenNodes = cell.querySelectorAll(
+    ".xls_show, [class*='xls_show'], [hidden], .sr-only, .visually-hidden, [style*='display:none'], [style*='visibility:hidden']"
   );
-  if (hiddenNode) {
+  for (const hiddenNode of hiddenNodes) {
     const hiddenText = cleanText(hiddenNode.textContent);
-    if (hiddenText && hiddenText !== "...") return hiddenText;
+    if (isMeaningfulObs(hiddenText)) return hiddenText;
   }
 
   const text = cleanText(cell.textContent);
-  return text && text !== "..." ? text : "";
+  return isMeaningfulObs(text) ? text : "";
 }
 
 function rememberObs(keys, obs) {
