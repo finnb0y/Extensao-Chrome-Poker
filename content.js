@@ -76,13 +76,38 @@ function getCandidateKeysFromElement(element) {
   if (!element) return [];
   const keys = [];
   const attrs = element.getAttributeNames ? element.getAttributeNames() : [];
+  const allowedAttrs = new Set([
+    "id",
+    "data-id",
+    "data-jogadorid",
+    "data-playerid",
+    "data-registroid",
+    "data-gameid",
+    "data-nome",
+    "data-name"
+  ]);
   for (const attr of attrs) {
+    if (!allowedAttrs.has(attr)) continue;
     const v = cleanText(element.getAttribute(attr));
     if (v) keys.push(v);
   }
   if (element.dataset) {
-    for (const v of Object.values(element.dataset)) {
-      const text = cleanText(v);
+    for (const [datasetKey, datasetValue] of Object.entries(element.dataset)) {
+      const normalizedKey = normalize(datasetKey);
+      if (
+        ![
+          "id",
+          "jogadorid",
+          "playerid",
+          "registroid",
+          "gameid",
+          "nome",
+          "name"
+        ].some((key) => normalizedKey.includes(key))
+      ) {
+        continue;
+      }
+      const text = cleanText(datasetValue);
       if (text) keys.push(text);
     }
   }
