@@ -4,79 +4,329 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Poker Registro Extractor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Saira:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
     <style>
+      :root {
+        --bg: #15161b;
+        --panel: #1d1f26;
+        --panel-alt: #23252e;
+        --border: #2e313c;
+        --text: #e9e9ef;
+        --text-muted: #9aa0ac;
+        --accent: #8b7bff;
+        --accent-hover: #a094ff;
+        --accent-text: #14151a;
+        --success: #3ddc97;
+        --danger: #ff6b6b;
+        --positive: #5aa9ff;
+        --negative: #ff6b6b;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
       body {
-        font-family: Arial, sans-serif;
-        width: 360px;
+        overflow-x: hidden;
+      }
+
+      body {
+        font-family: "Saira", Arial, sans-serif;
+        width: 400px;
         margin: 0;
         padding: 12px;
+        background: var(--bg);
+        color: var(--text);
+        font-size: 13px;
       }
+
       .row {
         display: flex;
-        gap: 10px;
-        margin-bottom: 10px;
+        gap: 8px;
+        margin-bottom: 8px;
         align-items: center;
         flex-wrap: wrap;
       }
+
       button {
-        border: 1px solid #ccc;
-        background: #fff;
-        border-radius: 6px;
-        padding: 8px 10px;
+        font-family: "Saira", Arial, sans-serif;
+        border: 1px solid var(--border);
+        background: var(--panel-alt);
+        color: var(--text);
+        border-radius: 999px;
+        padding: 7px 14px;
         cursor: pointer;
+        font-size: 12px;
+        font-weight: 600;
+        transition: background 0.15s ease, transform 0.1s ease, border-color 0.15s ease;
       }
+
+      button:hover {
+        background: var(--accent-hover);
+        color: var(--accent-text);
+        border-color: var(--accent-hover);
+      }
+
+      button:active {
+        transform: scale(0.96);
+      }
+
+      button.copy-btn {
+        padding: 4px 9px;
+        font-size: 10.5px;
+        white-space: nowrap;
+        border-radius: 999px;
+        background: var(--accent);
+        color: var(--accent-text);
+        border-color: var(--accent);
+      }
+
+      button.copy-btn:hover {
+        background: var(--accent-hover);
+        border-color: var(--accent-hover);
+      }
+
+      button.copy-btn.copied {
+        background: var(--success);
+        border-color: var(--success);
+        color: #0c1f16;
+      }
+
+      button.copy-btn.failed {
+        background: var(--danger);
+        border-color: var(--danger);
+        color: #2a0a0a;
+      }
+
       #status {
-        font-size: 12px;
-        color: #444;
-        margin: 8px 0;
-        min-height: 16px;
+        font-size: 11.5px;
+        color: var(--text-muted);
+        margin: 6px 0;
+        min-height: 14px;
       }
+
       #result {
-        max-height: 320px;
-        overflow: auto;
-        border: 1px solid #eee;
-        border-radius: 6px;
+        max-height: 380px;
+        overflow-y: auto;
+        overflow-x: hidden;
+        border: 1px solid var(--border);
+        border-radius: 12px;
         padding: 8px;
+        background: var(--panel);
       }
+
+      #result::-webkit-scrollbar {
+        width: 7px;
+      }
+
+      #result::-webkit-scrollbar-thumb {
+        background: var(--border);
+        border-radius: 8px;
+      }
+
       .table-title {
-        font-size: 12px;
-        font-weight: 700;
+        font-size: 11.5px;
+        font-weight: 600;
         margin: 0 0 6px;
+        color: var(--text);
       }
+
       .table-divider {
         height: 1px;
-        background: #ddd;
-        margin: 10px 0;
+        background: var(--border);
+        margin: 12px 0;
       }
+
       table {
-        border-collapse: collapse;
+        table-layout: fixed;
+        border-collapse: separate;
+        border-spacing: 0 5px;
         width: 100%;
         font-size: 11px;
       }
-      th,
-      td {
-        border: 1px solid #ddd;
-        padding: 4px;
+
+      thead th {
         text-align: left;
-        vertical-align: top;
+        color: var(--text-muted);
+        font-weight: 600;
+        font-size: 10px;
+        padding: 0 6px 4px;
       }
-      th {
-        background: #f6f6f6;
-        position: sticky;
-        top: 0;
+
+      tbody tr {
+        background: var(--panel-alt);
+        cursor: pointer;
       }
+
+      tbody tr:hover {
+        background: #2a2d38;
+      }
+
+      tbody td {
+        padding: 6px;
+        vertical-align: middle;
+        border-top: 1px solid var(--border);
+        border-bottom: 1px solid var(--border);
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+
+      tbody td:first-child {
+        border-left: 1px solid var(--border);
+        border-radius: 10px 0 0 10px;
+      }
+
+      tbody td:last-child {
+        border-right: 1px solid var(--border);
+        border-radius: 0 10px 10px 0;
+      }
+
+      td.col-check,
+      th.col-check {
+        text-align: center;
+        width: 22px;
+      }
+
+      td.col-actions,
+      th.col-actions {
+        width: 58px;
+        cursor: default;
+        text-align: center;
+      }
+
+      .saldo-positive {
+        color: var(--positive);
+        font-weight: 600;
+      }
+
+      .saldo-negative {
+        color: var(--negative);
+        font-weight: 600;
+      }
+
+      .saldo-zero {
+        color: var(--text);
+      }
+
+      input[type="checkbox"] {
+        width: 14px;
+        height: 14px;
+        accent-color: var(--accent);
+        cursor: pointer;
+      }
+
+      tr.row-selected td:not(.col-check):not(.col-actions) {
+        text-decoration: line-through;
+        color: var(--text-muted);
+        opacity: 0.65;
+      }
+
+      button.copy-btn:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+        background: var(--panel-alt);
+        color: var(--text-muted);
+        border-color: var(--border);
+      }
+
+      button.copy-btn:disabled:hover {
+        background: var(--panel-alt);
+        color: var(--text-muted);
+        border-color: var(--border);
+      }
+
       label {
-        font-size: 12px;
+        font-size: 11.5px;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        cursor: pointer;
+      }
+
+      /* Filtros em formato de "chip": clica na caixa toda, verde = ativo, vermelho = inativo */
+      label.toggle-chip {
+        padding: 6px 12px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: var(--panel-alt);
+        color: var(--text);
+        font-weight: 600;
+        transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+      }
+
+      label.toggle-chip input {
+        display: none;
+      }
+
+      label.toggle-chip:has(input:checked) {
+        background: var(--success);
+        border-color: var(--success);
+        color: #0c1f16;
+      }
+
+      label.toggle-chip:has(input:not(:checked)) {
+        background: var(--danger);
+        border-color: var(--danger);
+        color: #2a0a0a;
+      }
+
+      #statusFiltersRow {
+        display: flex;
+      }
+
+      label.date-chip {
+        padding: 6px 12px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: var(--panel-alt);
+        color: var(--text);
+        font-weight: 600;
+      }
+
+      label.date-chip input[type="date"] {
+        background: transparent;
+        border: none;
+        color: var(--text);
+        font-family: "Saira", Arial, sans-serif;
+        font-size: 11.5px;
+        font-weight: 600;
+        cursor: pointer;
+        color-scheme: dark;
+        padding: 0;
+      }
+
+      label.date-chip input[type="date"]::-webkit-calendar-picker-indicator {
+        filter: invert(1);
+        cursor: pointer;
+      }
+
+      em {
+        color: var(--text-muted);
+        font-style: normal;
+        font-size: 11.5px;
       }
     </style>
   </head>
   <body>
     <div class="row">
-      <button id="collect">Coletar neste site</button>
+      <button id="collect">Coletar</button>
     </div>
-    <div class="row">
-      <label><input type="checkbox" id="filterOpen" checked /> Registros Abertos</label>
-      <label><input type="checkbox" id="filterClosed" checked /> Registros Fechados</label>
+    <div class="row" id="statusFiltersRow">
+      <label class="toggle-chip"><input type="checkbox" id="filterOpen" checked /> <span id="filterOpenLabel"></span></label>
+      <label class="toggle-chip"><input type="checkbox" id="filterClosed" checked /> <span id="filterClosedLabel"></span></label>
+    </div>
+    <div class="row" id="cashOptionsRow">
+      <label class="toggle-chip"><input type="checkbox" id="hideNoObs" checked /> <span id="hideNoObsLabel"></span></label>
+      <label class="date-chip" id="cashDateWrap">
+        <span>Data:</span>
+        <input type="date" id="cashDate" />
+      </label>
     </div>
     <div id="status"></div>
     <div id="result"></div>

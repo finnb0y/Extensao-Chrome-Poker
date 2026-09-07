@@ -5,6 +5,10 @@ let observer = null;
 let latestRows = [];
 const SECOND_TABLE_SECTION_LABEL = "registros com participacao encerrada";
 
+// Se no SEU site os status "Aberto"/"Fechado" aparecerem trocados mesmo depois
+// desta correção, mude esta constante para `true` para inverter o resultado final.
+const INVERT_STATUS_DETECTION = true;
+
 function log(...args) {
   if (DEBUG) console.log("[PokerExtractor]", ...args);
 }
@@ -162,6 +166,11 @@ function splitName(registro) {
   return text.split(" - ")[0].trim();
 }
 
+// Remove sufixos do tipo " - 1270" que às vezes aparecem no final do nome
+function stripTrailingIdSuffix(value) {
+  return cleanText(String(value || "").replace(/\s*-\s*\d+\s*$/, ""));
+}
+
 function normalizeHeader(value) {
   return normalize(value).replace(/[^a-z0-9]/g, "");
 }
@@ -197,13 +206,13 @@ function isCashTable(indexMap) {
   const cIndex = findIndex(indexMap, ["C"]);
   const dIndex = findIndex(indexMap, ["D"]);
   const sIndex = findIndex(indexMap, ["S"]);
-  const saldoFinalIndex = findIndex(indexMap, ["Saldo/Final"]);
+  const saldoFinalIndex = findIndex(indexMap, ["Saldo/Final", "SaldoFinal", "Saldo Final"]);
   return [gameIDIndex, nameIndex, cIndex, dIndex, sIndex, saldoFinalIndex].every((idx) => idx >= 0);
 }
 
 function isTournamentTable(indexMap) {
   const nameIndex = findIndex(indexMap, ["Nome", "Registro"]);
-  const saldoFinalIndex = findIndex(indexMap, ["Saldo/Final"]);
+  const saldoFinalIndex = findIndex(indexMap, ["Saldo/Final", "SaldoFinal", "Saldo Final", "Saldo/Torneio"]);
   const indicators = ["BI", "ST", "RC", "TC", "JP", "Compras", "Saldo/Torneio"];
   const hasIndicator = indicators.some((header) => findIndex(indexMap, [header]) >= 0);
   return nameIndex >= 0 && saldoFinalIndex >= 0 && hasIndicator;
@@ -219,47 +228,123 @@ function detectTableType(indexMap) {
   return "Desconhecido";
 }
 
+// Remove ruídos de UI (botões de edição do próprio site, tipo "Cancelar"/"Salvar")
+// que às vezes ficam colados no início do nome do torneio, e também aspas sobrando.
+function cleanTournamentName(raw) {
+  let name = cleanText(raw);
+  const noiseWords = ["cancelar", "salvar", "editar", "excluir", "remover", "confirmar", "fechar"];
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const word of noiseWords) {
+      const re = new RegExp(`^${word}\\s*`, "i");
+      if (re.test(name)) {
+        name = name.replace(re, "");
+        changed = true;
+      }
+    }
+  }
+  name = name.replace(/^["'“”\-–—:\s]+/, "").replace(/["'“”\s]+$/, "");
+  return name.trim();
+}
+
+// Procura no cabeçalho da página um texto do tipo: Torneio - "Nome do Torneio"
+// Se encontrado, TODAS as tabelas suportadas nessa página são tratadas como Torneio,
+// e o nome capturado fica disponível em cada linha (campo TorneioNome).
+function detectPageTournamentName() {
+  const regex = /torneio\s*[-–—:]\s*["'“]?([^"'”\n]{2,80})/i;
+  const candidates = document.querySelectorAll(
+    "h1,h2,h3,h4,h5,h6,strong,b,legend,label,span,div,p,caption"
+  );
+
+  for (const el of candidates) {
+    if (el.children && el.children.length > 3) continue; // evita containers grandes
+    const text = cleanText(el.textContent);
+    if (!text || text.length > 200) continue;
+    const match = text.match(regex);
+    if (match) {
+      const name = cleanTournamentName(match[1]);
+      if (name) return name;
+    }
+  }
+
+  const titleMatch = cleanText(document.title).match(regex);
+  if (titleMatch) {
+    const name = cleanTournamentName(titleMatch[1]);
+    if (name) return name;
+  }
+
+  return "";
+}
+
+function applyStatusInversionIfNeeded(status) {
+  if (!INVERT_STATUS_DETECTION) return status;
+  return status === "Fechado" ? "Aberto" : "Fechado";
+}
+
 function detectStatusFromContext(table) {
   const candidates = [
     table.previousElementSibling,
     table.parentElement?.previousElementSibling,
-    table.closest("section,article,fieldset,div")?.previousElementSibling
+    table.closest("section,article,fieldset,div")?.previousElementSibling,
+    table.closest("section,article,fieldset,div")?.parentElement?.previousElementSibling
   ];
   for (const node of candidates) {
     const text = normalize(node?.textContent || "");
+    if (!text) continue;
     if (text.includes(SECOND_TABLE_SECTION_LABEL) || text.includes("encerrad")) return "Fechado";
+    if (text.includes("abert")) return "Aberto";
   }
   return "Aberto";
 }
 
+// Deteta se uma linha da tabela é, na verdade, um divisor/rótulo de seção
+// (ex.: "Registros com participação encerrada") em vez de um registro real.
+// Isso permite lidar com tabelas onde Abertos e Fechados estão no mesmo <table>.
+function detectRowSectionStatus(row) {
+  const text = normalize(row.textContent || "");
+  if (!text) return null;
+  if (text.includes(SECOND_TABLE_SECTION_LABEL) || text.includes("encerrad")) return "Fechado";
+  if (/\baberto|\babertos|\baberta|\babertas\b/.test(text) && row.querySelectorAll("td,th").length <= 2) {
+    return "Aberto";
+  }
+  return null;
+}
+
 function getCandidateTables() {
+  // priority: 3 = detecção explícita por rótulo de seção, 2 = seletor principal,
+  // 1 = varredura genérica (não deve sobrescrever uma detecção mais específica).
   const tableMap = new Map();
 
-  function setTable(table, status) {
+  function setTable(table, status, priority) {
     if (!table) return;
     const previous = tableMap.get(table);
-    if (!previous || status === "Fechado") tableMap.set(table, status);
+    if (!previous || priority > previous.priority) {
+      tableMap.set(table, { status, priority });
+    }
   }
 
   const primaryTable = document.querySelector(TABLE_SELECTOR);
-  if (primaryTable) setTable(primaryTable, "Aberto");
+  if (primaryTable) {
+    setTable(primaryTable, detectStatusFromContext(primaryTable), 2);
+  }
 
   const labels = Array.from(document.querySelectorAll("h1,h2,h3,h4,h5,h6,strong,b,legend,label,span,div"));
   for (const label of labels) {
     if (!normalize(label.textContent).includes(SECOND_TABLE_SECTION_LABEL)) continue;
     const container = label.closest("section,article,fieldset,div") || label.parentElement;
     const inContainer = container?.querySelector("table");
-    if (inContainer) setTable(inContainer, "Fechado");
+    if (inContainer) setTable(inContainer, "Fechado", 3);
 
     let sibling = label.nextElementSibling;
     while (sibling) {
       if (sibling.tagName === "TABLE") {
-        setTable(sibling, "Fechado");
+        setTable(sibling, "Fechado", 3);
         break;
       }
       const nested = sibling.querySelector?.("table");
       if (nested) {
-        setTable(nested, "Fechado");
+        setTable(nested, "Fechado", 3);
         break;
       }
       sibling = sibling.nextElementSibling;
@@ -269,11 +354,11 @@ function getCandidateTables() {
   for (const table of document.querySelectorAll("table")) {
     const headerInfo = getHeaderInfo(table);
     if (headerInfo && isSupportedTable(headerInfo.indexMap)) {
-      setTable(table, detectStatusFromContext(table));
+      setTable(table, detectStatusFromContext(table), 1);
     }
   }
 
-  return Array.from(tableMap.entries()).map(([table, status]) => ({ table, status }));
+  return Array.from(tableMap.entries()).map(([table, info]) => ({ table, status: info.status }));
 }
 
 function shouldFormatAsMoney(headerName) {
@@ -281,68 +366,77 @@ function shouldFormatAsMoney(headerName) {
   return key.includes("saldo") || key.includes("compra") || key.includes("compras");
 }
 
-function parseTableRows(table, status) {
+function parseTableRows(table, initialStatus, pageTournamentName) {
   const headerInfo = getHeaderInfo(table);
   if (!headerInfo || !isSupportedTable(headerInfo.indexMap)) return [];
 
-  const { headerRow, headerCells, indexMap } = headerInfo;
-  const tableType = detectTableType(indexMap);
+  const { headerRow, indexMap } = headerInfo;
+  const columnTableType = detectTableType(indexMap);
+  const tableType = pageTournamentName ? "Torneio" : columnTableType;
+
   const registroIndex = findIndex(indexMap, ["Registro"]);
   const nomeIndex = findIndex(indexMap, ["Nome"]);
   const gameIDIndex = findIndex(indexMap, ["GameID"]);
   const obsIndex = findIndex(indexMap, ["Obs", "Observacao", "Observação"]);
+  const saldoFinalIndex = findIndex(indexMap, ["Saldo/Final", "SaldoFinal", "Saldo Final", "Saldo/Torneio"]);
 
   let rows = Array.from(table.querySelectorAll("tbody tr"));
   if (!rows.length) rows = Array.from(table.querySelectorAll("tr")).filter((row) => row !== headerRow);
 
-  return rows
-    .map((row) => {
-      const cells = Array.from(row.querySelectorAll("td"));
-      if (!cells.length) return null;
+  const results = [];
+  let currentStatus = initialStatus;
 
-      const registro = registroIndex >= 0 ? cleanText(cells[registroIndex]?.textContent) : "";
-      const nome = nomeIndex >= 0 ? cleanText(cells[nomeIndex]?.textContent) : "";
-      const gameID = gameIDIndex >= 0 ? cleanText(cells[gameIDIndex]?.textContent) : "";
-      const finalName = nome || splitName(registro);
-      const obsCell = obsIndex >= 0 ? cells[obsIndex] : cells[headerCells.length - 1] || cells[cells.length - 1];
+  for (const row of rows) {
+    const sectionStatus = detectRowSectionStatus(row);
+    if (sectionStatus) {
+      currentStatus = sectionStatus;
+      continue; // linha divisória/rótulo, não é um registro
+    }
 
-      const trKeys = getCandidateKeysFromElement(row);
-      const obsKeys = getCandidateKeysFromElement(obsCell);
-      const lookupKeys = buildObsLookupKeys({
-        elementKeys: [...trKeys, ...obsKeys],
-        registro,
-        name: finalName,
-        gameID
-      });
+    const cells = Array.from(row.querySelectorAll("td"));
+    if (!cells.length) continue;
 
-      const directObs = extractObsFromDomCell(obsCell);
-      if (directObs) rememberObs(lookupKeys, directObs);
-      const cachedObs = readObsFromCache(lookupKeys);
-      const obs = cleanText(directObs || cachedObs);
+    const registro = registroIndex >= 0 ? cleanText(cells[registroIndex]?.textContent) : "";
+    const nome = nomeIndex >= 0 ? cleanText(cells[nomeIndex]?.textContent) : "";
+    const gameID = gameIDIndex >= 0 ? cleanText(cells[gameIDIndex]?.textContent) : "";
+    const finalName = stripTrailingIdSuffix(nome || splitName(registro) || registro);
+    const saldoFinalRaw = saldoFinalIndex >= 0 ? cleanText(cells[saldoFinalIndex]?.textContent) : "";
+    const saldoFinal = formatMoney(saldoFinalRaw);
+    const obsCell = obsIndex >= 0 ? cells[obsIndex] : cells[cells.length - 1];
 
-      const parsedRow = {};
-      headerCells.forEach((headerCell, index) => {
-        const headerName = cleanText(headerCell.textContent) || `Coluna ${index + 1}`;
-        const rawValue = cleanText(cells[index]?.textContent);
-        parsedRow[headerName] = shouldFormatAsMoney(headerName) ? formatMoney(rawValue) : rawValue;
-      });
+    const trKeys = getCandidateKeysFromElement(row);
+    const obsKeys = getCandidateKeysFromElement(obsCell);
+    const lookupKeys = buildObsLookupKeys({
+      elementKeys: [...trKeys, ...obsKeys],
+      registro,
+      name: finalName,
+      gameID
+    });
 
-      if (registro && !parsedRow.Nome && !parsedRow.Registro) parsedRow.Nome = splitName(registro) || registro;
-      if (obs) parsedRow.Obs = obs;
+    const directObs = extractObsFromDomCell(obsCell);
+    if (directObs) rememberObs(lookupKeys, directObs);
+    const cachedObs = readObsFromCache(lookupKeys);
+    const obs = cleanText(directObs || cachedObs);
 
-      parsedRow.StatusRegistro = status;
-      parsedRow.TipoRegistro = tableType;
+    const parsedRow = {
+      Nome: finalName,
+      SaldoFinal: saldoFinal,
+      Obs: obs,
+      StatusRegistro: applyStatusInversionIfNeeded(currentStatus),
+      TipoRegistro: tableType,
+      TorneioNome: pageTournamentName || ""
+    };
 
-      const hasData = Object.entries(parsedRow).some(
-        ([key, value]) => key !== "StatusRegistro" && key !== "TipoRegistro" && cleanText(value)
-      );
-      return hasData ? parsedRow : null;
-    })
-    .filter(Boolean);
+    const hasData = Boolean(parsedRow.Nome || parsedRow.SaldoFinal || parsedRow.Obs);
+    if (hasData) results.push(parsedRow);
+  }
+
+  return results;
 }
 
 function getRows() {
-  return getCandidateTables().flatMap(({ table, status }) => parseTableRows(table, status));
+  const pageTournamentName = detectPageTournamentName();
+  return getCandidateTables().flatMap(({ table, status }) => parseTableRows(table, status, pageTournamentName));
 }
 
 function collectNow() {
