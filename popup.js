@@ -409,6 +409,27 @@ filterClosedEl.addEventListener("change", onFilterChange);
 hideNoObsEl.addEventListener("change", onFilterChange);
 cashDateEl.addEventListener("change", saveCashDateForSite);
 
+// O campo de data só pode ser alterado pelo calendário nativo — digitação e
+// colagem são bloqueadas, e qualquer clique já força a abertura do seletor.
+cashDateEl.addEventListener("keydown", (event) => {
+  if (event.key === "Tab") return;
+  event.preventDefault();
+});
+
+cashDateEl.addEventListener("paste", (event) => {
+  event.preventDefault();
+});
+
+cashDateEl.addEventListener("click", () => {
+  if (typeof cashDateEl.showPicker === "function") {
+    try {
+      cashDateEl.showPicker();
+    } catch (_error) {
+      // Ignora se o navegador recusar (ex.: chamado fora de um gesto do usuário)
+    }
+  }
+});
+
 async function init() {
   const tab = await getActiveTab();
   currentSiteHost = getHostFromTab(tab);
